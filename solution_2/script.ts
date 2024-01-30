@@ -38,64 +38,154 @@ type ApiResponse = {
     products: Product[];
 };
 
-const products: Product[] = [];
+class ApiScraper {
+    private minPointer: number;
+    private maxPointer: number;
+    private maxThresholds: number[] = [];
+    private products: Product[] = [];
+    private cache: {
+        threshold: number;
+        overflow: number;
+    }[] = [];
 
-const url = new URL(API_URL);
+    constructor(
+        private min: number,
+        private max: number,
+        private url: string,
+        private priceStep: number
+    ) {
+        this.minPointer = min;
+        this.maxPointer = max;
+    }
 
-const breakpoints: number[] = [];
+    public async scrape() {
+        while (true) {
+            const data = await this.fetchData();
 
-let currentMin = MIN_PRICE;
-let currentMax = MAX_PRICE;
+            /* Handle: number of entries exceeds API's limit */
+            if (data.count < data.total) {
+                const newThreshold = this.addThreshold(
+                    this.minPointer,
+                    this.maxPointer
+                );
+
+                if (newThreshold) {
+                    this.cache.push({
+                        threshold: this.maxPointer,
+                        overflow: data.total - data.count,
+                    });
+                    this.maxPointer = newThreshold;
+                    continue;
+                } else if (this.minPointer !== this.maxPointer) {
+                    this.maxPointer = this.minPointer;
+                    continue;
+                } else {
+                    console.warn(
+                        `Could not extract all products for price ${this.minPointer}$. Number of products exceeds API's limit. Skipping to the next price range.`
+                    );
+                }
+            }
+
+            /* Save products, update cache */
+            this.products.push(...data.products);
+
+            this.cache.forEach((entry) => (entry.overflow -= data.count));
+
+            /* Handle: super rare edge case where last but one price step exceeded API's limit */
+            if (
+                this.maxThresholds.length === 0 &&
+                this.minPointer === this.maxPointer &&
+                this.minPointer !== this.max
+            ) {
+                this.maxThresholds.push(this.max);
+            }
+
+            /* Update minPointer */
+            const nextThreshold = this.maxThresholds.pop();
+
+            if (!nextThreshold)
+                break; /* No more price ranges, all entries extracted => break loop. */
+
+            this.minPointer =
+                nextThreshold !== this.max
+                    ? nextThreshold + this.priceStep
+                    : nextThreshold;
+
+            /* Remove unnecessary cache and thresholds */
+            this.cache = this.cache.filter(
+                (breakpoint) => breakpoint.threshold > this.minPointer
+            );
+
+            if (this.maxThresholds.at(-1) === this.minPointer) {
+                this.maxThresholds.pop();
+            }
+
+            /* Update maxPointer */
+            const optimalMax = this.cache.find(
+                (breakpoint) => breakpoint.overflow <= 0
+            )?.threshold;
+
+            if (optimalMax) {
+                this.maxPointer = optimalMax;
+                /* Remove unnecessary thresholds */
+                this.maxThresholds = this.maxThresholds.filter(
+                    (threshold) => threshold >= optimalMax
+                );
+            } else {
+                const newThreshold = this.addThreshold(
+                    nextThreshold,
+                    this.maxThresholds.at(-1) ?? this.max
+                );
+
+                if (newThreshold) {
+                    this.maxPointer = newThreshold;
+                } else {
+                    this.maxPointer = this.minPointer;
+                }
+            }
+        }
+
+        return this.products;
+    }
+
+    private async fetchData() {
+        const url = new URL(this.url);
+        url.searchParams.set(API_PARAMS.minPrice, `${this.minPointer}`);
+        url.searchParams.set(API_PARAMS.maxPrice, `${this.maxPointer}`);
+
+        const response = await fetch(url);
+
+        if (response.status !== 200) {
+            // If we know different status codes that the API uses, we can handle them accordingly.
+            throw new Error("Could not retrieve data from the API."); // We don't have to necessarily exit the script. If the service is unavailable we could instead implement for example a polling mechanism checking whether the service is back online.
+        }
+
+        const data: ApiResponse = await response.json();
+
+        return data;
+    }
+
+    private addThreshold(min: number, max: number) {
+        const newThreshold = (min + max) / 2;
+
+        if (newThreshold - this.priceStep < min) {
+            return null;
+        }
+
+        this.maxThresholds.push(newThreshold);
+
+        return newThreshold;
+    }
+}
 
 (async () => {
     try {
-        while (true) {
-            /* Fetch data */
-            url.searchParams.set(API_PARAMS.minPrice, `${currentMin}`);
-            url.searchParams.set(API_PARAMS.maxPrice, `${currentMax}`);
-
-            const response = await fetch(url);
-
-            if (response.status !== 200) {
-                // If we know different status codes that the API uses, we can handle them accordingly.
-                throw new Error("Could not retrieve data from the API."); // We don't have to necessarily exit the script. If the service is unavailable we could instead implement for example a polling mechanism checking whether the service is back online.
-            }
-
-            const data: ApiResponse = await response.json();
-
-            /* Handle: number of entries exceeds API limit */
-            if (data.count < data.total) {
-                if (currentMin !== currentMax) {
-                    /* Narrow price range down */
-                    const newBreakpoint = (currentMax + currentMin) / 2;
-
-                    /* Handle: can't narrow down => try minPrice === maxPrice  */
-                    if (newBreakpoint - PRICE_STEP < currentMin) {
-                        currentMax = currentMin;
-                        continue;
-                    }
-
-                    breakpoints.push(newBreakpoint);
-                    currentMax = newBreakpoint;
-                    continue;
-                }
-
-                console.warn(
-                    `Could not extract all products for price ${currentMin}$. Number of products exceeds API's limit. Skipping to the next price range.`
-                );
-            }
-
-            /* Extract products */
-            products.push(...data.products);
-
-            /* Move to the next price range */
-            const newMin = breakpoints.pop();
-            if (newMin === undefined)
-                break; /* No more price ranges, all entries extracted => break loop. */
-
-            currentMin = newMin;
-            currentMax = breakpoints.at(-1) ?? MAX_PRICE;
-        }
+        const products = await new ApiScraper(
+            MIN_PRICE,
+            MAX_PRICE,
+            API_URL,
+            PRICE_STEP
+        ).scrape();
 
         /* Handle output */
         console.log(products); // for example write to a file

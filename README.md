@@ -5,11 +5,12 @@
 -   The underlying data are coherent, not randomly generated.
 -   The API does what it is supposed to according to the specified interface.
 -   The data don't change in real time.
--   The solution doesn't have to scale, be easily customizable, etc. => it's written in sort of a simple procedural script.
+-   The solution doesn't have to scale, be easily customizable, etc.
 -   This is the only way to get the data. We don't have access to the underlying database, we can't contact the provider to export the data for us, the API doesn't receive any other parameters that could help us, there is no other API more suited for our needs, etc. Why go the hard way when there could be an easier solution. ;-)
 -   The price range is inclusive.
 -   There are not so many products that we would run out of memory.
--   Smallest price step is 0.01$. The scripts don't rely on that exact number, it can be easily modified inside `constants.ts`.
+-   Smallest price step is 0.01$. (The exact number can be easily modified inside `constants.ts`.)
+-   There is no unique identifier for the products. If we had one we don't have to use the 0.01$ price step. We could reduce the number of requests and post process the data removing duplicities.
 
 ## API's limitation
 
