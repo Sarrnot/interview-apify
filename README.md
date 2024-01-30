@@ -36,3 +36,7 @@ The solution uses a variation on the binary search algorithm.
 ### Presumptions
 
 -   Products either do NOT contain their own price or the API's limit does NOT cut off products based on their price.
+
+## Note
+
+For smaller number of entries both solutions appear to be functioning but during testing of solution_2 I found out that for 1_000_000 entries there is always around 0,00005%-0,0001% entries missing without logging a warning that they were intentionally skipped. Considering this is a demo app I am not going to investigate why. My assumption is I missed or mishandled some edge case that surfaces with higher number of entries. If you would notice where I made a mistake, please let me know, I would really appreciate it.
